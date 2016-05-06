@@ -1,0 +1,14 @@
+---
+# ansible playbook for NIS configuration
+- hosts: macs
+  tasks:
+    - name: set auto_master
+      copy: src=files/auto_master.mac dest=/etc/auto_master owner=root
+
+    - name: set auto_smb
+      copy: src=files/auto_smb.products dest=/etc/auto_smb owner=root
+      register: auto_smb
+
+    - command: "/usr/sbin/automount -vc"
+      when: auto_smb.changed
+
