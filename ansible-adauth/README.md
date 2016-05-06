@@ -34,6 +34,7 @@ Example Playbook
 -------------------------
 
  - hosts: ad_servers
+
    vars_files:
      - site_vars/main.yml
 
