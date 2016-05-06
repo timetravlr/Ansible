@@ -16,7 +16,7 @@ The role joins the server in AD with Samba to generate the Keytab for GSSAPI aut
 Role Variables
 --------------
 
-The role uses the following variables, which you should override in your playbook:
+The role uses the following variables in site_vars, which you should override in your playbook:
 * `adauth_workgroup` - The short domain name uppercase.
 * `adauth_realm` - The domain name uppercase.
 * `adauth_pdc` - The primary domain controller fqdn.
@@ -33,14 +33,15 @@ The role uses the following variables, which you should override in your playboo
 Example Playbook
 -------------------------
 
-- hosts: ad_servers
-  vars_files:
-    - site_vars/main.yml
+ - hosts: ad_servers
+   vars_files:
+     - site_vars/main.yml
 
-  handlers:
-    - include: handlers/main.yml
-  tasks:
-    - include: tasks/main.yml
+   handlers:
+     - include: handlers/main.yml
+
+   tasks:
+     - include: tasks/main.yml
 
 
 
