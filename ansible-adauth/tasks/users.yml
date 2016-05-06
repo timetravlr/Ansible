@@ -1,0 +1,11 @@
+---
+# Ansible playbook for adding users
+#
+# Define which hosts in /etc/ansible/hosts will run this
+- hosts: rhel6
+  tasks:
+# Add user:
+    - user: name=joe shell=/bin/bash comment="Joe User" uid=5000 groups=wheel 
+
+# To remove user:
+#    - user: name=username state=absent remove=yes

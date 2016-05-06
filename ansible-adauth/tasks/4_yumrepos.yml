@@ -1,0 +1,18 @@
+---
+# Ansible yumrepos playbook to copy yum config files so we can install packages
+- name: Install yum repos
+# hosts: ad_servers
+  vars:
+    - yumrepofile1: 'rhel6-updates.repo'  # set your yum repo filenames here
+
+  tasks:
+    - name: Copy yum repo files
+      copy: src=../files/{{ yumrepofile1 }} dest=/etc/yum.repos.d/{{ yumrepofile1 }} owner=root mode=644 backup=no
+      notify:
+      - yumclean
+
+  handlers:
+      - name: yumclean
+        shell: "/usr/bin/yum clean metadata"
+
+
