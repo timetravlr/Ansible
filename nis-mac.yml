@@ -6,7 +6,7 @@
       copy: src=files/auto_master.mac dest=/etc/auto_master owner=root
 
     - name: set auto_smb
-      copy: src=files/auto_smb.products dest=/etc/auto_smb owner=root
+      copy: src=files/auto_smb dest=/etc/auto_smb owner=root
       register: auto_smb
 
     - command: "/usr/sbin/automount -vc"
