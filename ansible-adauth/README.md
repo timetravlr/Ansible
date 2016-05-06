@@ -1,5 +1,6 @@
 adauth
 ========
+(Slightly modified from existing project by glisha.)
 
 Ansible role to configure RHEL and derivates to use Microsoft Active Directory for authentication. 
 
@@ -32,14 +33,18 @@ The role uses the following variables, which you should override in your playboo
 Example Playbook
 -------------------------
 
-    - hosts: ad-servers
-      vars_files:
-        - site_vars/adauth.yml
+- hosts: ad_servers
+  vars_files:
+    - site_vars/main.yml
 
-      roles:
-         - glisha.adauth
+  handlers:
+    - include: handlers/main.yml
+  tasks:
+    - include: tasks/main.yml
 
-Where site_vars/adauth.yml is defaults/main.yml modifed to your needs.
+
+
+Where site_vars/main.yml is defaults/main.yml modifed to your needs.
 
 
 License
