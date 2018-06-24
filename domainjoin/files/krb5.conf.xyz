@@ -1,0 +1,32 @@
+[libdefaults]
+	default_realm = TESTDOMAIN.ORG
+	clockskew = 300
+	ticket_lifetime = 24h
+	renew_lifetime = 7d
+	forwardable = yes
+	rdns = false
+	dns_lookup_realm = true
+
+[realms]
+TESTDOMAIN.ORG = {
+	kdc = dctlr.testdomain.org
+	default_domain = testdomain.org
+	admin_server = dctlr.testdomain.org
+}
+
+[logging]
+	kdc = FILE:/var/log/krb5libs.log
+	default = SYSLOG:NOTICE:DAEMON
+[domain_realm]
+	testdomain.org = TESTDOMAIN.ORG
+	.testdomain.org = TESTDOMAIN.ORG
+
+
+[appdefaults]
+ pam = {
+   debug = false
+   ticket_lifetime = 36000
+   renew_lifetime = 36000
+   forwardable = true
+   krb4_convert = false
+ }

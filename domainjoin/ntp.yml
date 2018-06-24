@@ -1,0 +1,19 @@
+---
+- hosts: sssdservers
+  vars:
+    - timeserver: '0.rhel.pool.ntp.org'  # set your time server here
+
+  tasks:
+    - name: Copy ntp conf
+      copy: src=../files/ntp.conf dest=/etc/ntp.conf owner=root mode=644 backup=no
+      notify: force ntpd update
+
+    - name: start ntpd
+      service: name=ntpd state=started enabled=yes
+
+  handlers:
+    - name: restart ntpd
+      service: name=ntpd state=restarted
+
+    - name: force ntpd update
+      shell: "/etc/init.d/ntpd stop && /usr/sbin/ntpdate -s {{ timeserver }} && /etc/init.d/ntpd restart"
