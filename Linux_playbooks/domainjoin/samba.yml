@@ -1,0 +1,44 @@
+--- # Samba - may be optional to complete domain join
+- hosts: sssdservers
+  tasks:
+   - name: Install Samba packages
+     yum: pkg={{ item }} state=installed
+     with_items:
+     - samba
+     - samba-client
+     - samba-winbind-clients
+     - samba-common
+     - samba4-libs
+
+   - name: Check if samba.conf exists
+     stat: path=/etc/samba/smb.conf
+     register: stat_result
+
+   - name: Copy the samba config file to configure as domain member
+     copy: src=../files/smb.conf dest=/etc/samba/smb.conf owner=root group=root mode=644 backup=yes
+     when: stat_result.stat.exists == false
+
+   - name: Correct hostname in smb.conf
+     lineinfile: dest=/etc/samba/smb.conf regexp='netbios name' line='   netbios name={{ ansible_hostname }}'
+     register: fixsmbhostname
+
+   - name: Correct server string in smb.conf
+     lineinfile: dest=/etc/samba/smb.conf regexp='server string' line='   server string="{{ ansible_hostname }} Samba Server"'
+     register: fixsmbstringname
+
+# Requires restart of smb, winbind, and nmb
+   - name: Restart smb
+     service: name=smb state=restarted enabled=yes
+   - name: Restart nmb
+     service: name=nmb state=restarted enabled=yes
+   - name: Restart winbind
+     service: name=winbind state=restarted enabled=yes
+
+  handlers:
+   - name: Restart samba
+     service: name=smb state=restarted
+   - name: Restart nmb
+     service: name=nmb state=restarted
+   - name: Restart winbind
+     service: name=winbind state=restarted
+    

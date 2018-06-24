@@ -1,0 +1,12 @@
+--- # Join CentOS6 Linux to SSSD and Active Directory
+- include: yumrepo-6.yml
+- include: ntp.yml
+- include: selinux.yml
+- include: krb5.yml
+- include: nsswitch.yml
+- include: sssd.yml
+- include: samba.yml
+- include: domjoin.yml
+- include: sshd.yml
+
+
