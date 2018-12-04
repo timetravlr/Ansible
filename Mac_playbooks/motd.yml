@@ -1,0 +1,36 @@
+--- # Determine info about a Mac system and add it to Message of the Day
+- hosts: macs
+  tasks:
+    - name: Get sw_version
+      shell: "sw_vers -productVersion"
+      register: sw_version
+
+    - name: Get memory
+      shell: "system_profiler SPHardwareDataType | grep Memory | awk '{print $2}' "
+      register: memory
+
+    - name: Get cores
+      shell: "system_profiler SPHardwareDataType | grep Cores | awk '{print $5}' "
+      register: cores
+
+    - name: Get processors
+      shell: "system_profiler SPHardwareDataType | grep Processors | awk '{print $4}' "
+      register: processors
+
+    - name: Get xcodeversion
+      shell: '/usr/bin/xcodebuild -version -sdk | grep "^Xcode" ' 
+      register: xcodeversion
+
+    - name: Get full name of OS build if Mojave
+      set_fact:
+        osbuildname: "Mojave"
+      when: '"10.14" in sw_version.stdout'
+
+    - name: Get full name of OS build if High Sierra
+      set_fact:
+        osbuildname: "High Sierra"
+      when: '"10.13" in sw_version.stdout'
+
+    - name: Create /etc/motd file
+      template: src=templates/motd.j2 dest=/etc/motd owner=root
+
