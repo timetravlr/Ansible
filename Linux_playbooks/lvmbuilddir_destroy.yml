@@ -1,0 +1,70 @@
+---
+# DESTROY lVM disk and remove the folder - WARNING it will delete shtuff
+- hosts: cent7
+  user: root
+  vars:
+   - datastore_name: DATASTORE1
+   - target: "{{ ansible_hostname }}"
+  tasks:
+    - name: unmount new build dir
+      mount: 
+        name: /build
+        src: /dev/mapper/vg1-lv_build
+        fstype: ext4
+        state: absent
+
+    - name: Destroy logical volume
+      lvol:
+        vg: vg1
+        lv: lv_build
+        state: absent
+        force: yes
+
+    - name: Destroy lvm volume group
+      lvg:
+        vg: vg1
+        state: absent
+        force: yes 
+        pvs: /dev/sdb
+
+    - name: Destroy pv 
+      command: "/usr/sbin/pvremove /dev/sdb"
+      register: pvremoved
+      ignore_errors: true
+
+    - name: Run lvmdiskscan
+      command: /usr/sbin/lvmdiskscan
+      register: diskscan
+
+    - debug: msg="{{ diskscan }}"
+
+    - name: Include secret vars
+      include_vars: secret.yml
+
+# Set the disk state to absent to get rid of it
+    - name: vSphere actions | Delete VM disk /dev/sdb
+      vmware_guest_disk:
+        hostname: vc01.testdomain.com
+        username: "{{ username_vc }}"
+        password: "{{ password_vc }}"
+        datacenter: West Datacenter
+        name: "{{ target }}"
+        validate_certs: no
+        disk:
+          - size_gb: "{{ disk_size }}"
+            type: thin
+            datastore: "{{ datastore_name }}"
+            state: absent
+            scsi_type: paravirtual
+            scsi_controller: 0
+            unit_number: 1
+            #autoselect_datastore: true
+      delegate_to: localhost
+      register: disk_facts
+            
+    - lineinfile:
+        dest: /etc/fstab
+        state: absent
+        regexp: '/build'
+
+

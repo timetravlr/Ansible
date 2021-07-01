@@ -1,0 +1,96 @@
+---
+# Create lvm disk for /build
+# Three scenarios for /build volume:
+# 1. Is /dev/sdb created yet in vSphere? If no, then add /dev/sdb and Configure LVM
+# 2. Is /dev/sdb created? If yes, but not configured, then Configure LVM
+# 3. Is /dev/sdb created, and LVM configured? Then just reapply permissions on /build for build or testclient user.
+- hosts: cent7
+  vars:
+    - disk_size: 250
+    - datastore_name: DATASTORE1
+    - build_or_testclient: build
+    - target: "{{ ansible_hostname }}"
+   
+  tasks:
+    - name: Include secret vars
+      include_vars: secret.yml
+
+    - debug: msg="Username {{ username_vc }} , disk size {{ disk_size }} will be used"
+
+    - name: Check if /dev/sdb exists yet
+      shell: 'fdisk -l | grep sdb'
+      register: verifysdb
+      ignore_errors: true
+
+    - name: vSphere actions | Create VM disk
+      vmware_guest_disk:
+        hostname: vc01.testdomain.com
+        username: "{{ username_vc }}"
+        password: "{{ password_vc }}"
+        datacenter: West Datacenter
+        name: "{{ target }}"
+        validate_certs: no
+        disk:
+          - size_gb: "{{ disk_size }}"
+            type: thin
+            datastore: "{{ datastore_name }}"
+            state: present
+            scsi_type: paravirtual
+            scsi_controller: 0
+            unit_number: 1
+            #autoselect_datastore: true
+      delegate_to: localhost
+      register: disk_facts
+      when: verifysdb is not success
+
+
+    - name: Check again if /dev/sdb exists yet
+      shell: 'fdisk -l | grep sdb'
+      register: verifysdb
+      ignore_errors: true
+
+    - name: Check if lvm volume exists
+      shell: '/usr/sbin/lvs | grep build'
+      register: lvs_check
+      ignore_errors: true
+
+# Note: tested using the more native LVM commands in Ansible but found the command method still better
+### BLOCK STARTS
+    - name: Block to create lvm volume and vg, after creating disk
+      block:
+        - name: unmount build dir
+          mount: 
+            name: /build
+            src: /dev/mapper/vg1-lv_build
+            fstype: ext4
+            state: unmounted
+        - name: Run lvmdiskscan
+          command: "/usr/sbin/lvmdiskscan"
+        - name: Create physical volume
+          command: "/usr/sbin/pvcreate /dev/sdb"
+          register: pvcreated
+        - name: Create logical volume group
+          command: "/usr/sbin/vgcreate vg1 /dev/sdb"
+          register: vgcreated
+        - name: Create logical volume
+          command: "/usr/sbin/lvcreate -l 100%VG -n lv_build vg1"
+          register: lvcreated
+        - name: Format new build logical volume
+          command: "mkfs.ext4 -T news /dev/vg1/lv_build"
+          when: lvcreated is success
+      when: 
+      - verifysdb is success
+      - lvs_check is failed 
+
+
+    - name: Create /build dir
+      file: path=/build state=directory owner=products group=gtools mode=775
+      tags: buildcreate
+      ignore_errors: true
+
+    - name: Add mount for new build dir
+      mount: 
+        name: /build
+        src: /dev/vg1/lv_build
+        fstype: ext4
+        state: mounted
