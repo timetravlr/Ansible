@@ -1,0 +1,84 @@
+---
+# Script to check several Macs over ssh, then identify successful and failed connections
+# syntax example: ansible-playbook list_check_macs.yml -i files/machosts.txt 
+# Note: to avoid Python warnings, add this to /etc/ansible/ansible.cfg: interpreter_python=auto_silent
+- hosts: localhost
+  user: root
+  vars:
+  - machosts_list: "hostlist.txt"
+  - emailto: "testemail@example.com"
+ 
+  tasks:
+# start block for delegate to localhost for all these commands
+    - block:
+      - debug: msg="PLEASE WAIT while this checks multiple systems, it could take a couple minutes..."
+        delegate_to: localhost
+
+      - name: Clean log files to be recreaed in /tmp if they exist
+        ansible.builtin.file:
+           path: "{{ item }}"
+           state: absent
+        with_items:
+        - /tmp/machosts-success.txt
+        - /tmp/machosts-pingall.txt
+        - /tmp/machosts-unreachable.txt
+
+      - name: Create success inventory file and add mac group to the top
+        ansible.builtin.shell: 'echo "[macs]" > /tmp/machosts-success.txt'
+
+      - name: Check all Macs with ansible -m ping  to identify live systems
+        ansible.builtin.shell: "ansible all -m ping -u root -i {{ machosts_list }} > /tmp/machosts-pingall.txt"
+        ignore_errors: true
+        delegate_to: localhost
+        register: pingall
+
+      - name: Grab list of successful macs
+        ansible.builtin.shell: "/usr/bin/grep SUCCESS /tmp/machosts-pingall.txt >> /tmp/machosts-success.txt"
+        register: grabsuccess
+        tags: grabsuccess
+
+      - name: Clean success list from extra characters
+        ansible.builtin.shell: "sed -i -e 's/ | SUCCESS.*$//g' /tmp/machosts-success.txt"
+        ignore_errors: true
+        tags: grabsuccess
+
+      - name: Grab list of unreachable macs
+        ansible.builtin.shell: "/usr/bin/grep UNREACHABLE /tmp/machosts-pingall.txt | tee /tmp/machosts-unreachable.txt"
+        tags: grabunreach
+      
+      - name: Clean unreachable list from extra characters
+        ansible.builtin.shell: "sed -i -e 's/ | UNREACHABLE.*$//g' /tmp/machosts-unreachable.txt"
+        ignore_errors: true
+        register: grabunreach
+        tags: grabunreach
+
+      - name: "send success notification email"
+        mail:
+          host: localhost
+          port: 25
+          to: '{{ emailto }}'
+          subject: 'Successful list'
+          body: 'These systems responded successfully, see attachment.'
+          attach: /tmp/machosts-success.txt
+        delegate_to: localhost
+        when: grabsuccess is succeeded
+        ignore_errors: true
+        run_once: true
+        tags: send_mail
+
+      - name: "send failure notification email"
+        mail:
+          host: localhost
+          port: 25
+          to: '{{ emailto }}'
+          subject: 'Failed list'
+          body: 'These hosts probably need some attention, see attachment.'
+          attach: /tmp/machosts-unreachable.txt
+        delegate_to: localhost
+        when: grabunreach is succeeded
+        run_once: true
+        tags: send_mail
+
+
+      delegate_to: localhost
+
