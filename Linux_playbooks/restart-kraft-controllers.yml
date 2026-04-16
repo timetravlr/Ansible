@@ -1,0 +1,84 @@
+---
+# Use this playbook do to a rolling restart of the Kafka KRaft controller cluster with health checks
+# Usage: ../bin/ansible-playbook playbooks/restart-kraft-controllers.yml -i inventories/DC1.yml -l kraft_controller
+#
+- hosts: kraft_controller
+  gather_facts: false
+  become: true
+  become_user: root
+  serial: 1
+  vars:
+    kafka_bin_dir: "/usr/bin"
+    kafka_conf: "/etc/kafka/server.properties"
+    bootstrap_server: "localhost:9093"
+
+  tasks:
+    - name: "Current Node: {{ inventory_hostname }} (ID: {{ node_id }})"
+      debug:
+        msg: "Beginning maintenance on Node {{ node_id }}"
+  
+    - name: Pre-restart Quorum health check
+      shell: >
+        sudo {{ kafka_bin_dir }}/kafka-metadata-quorum --bootstrap-controller {{ bootstrap_server }} describe --status
+      register: initial_quorum_check
+      changed_when: false
+      failed_when: "'LeaderId' not in initial_quorum_check.stdout"
+
+    - name: Display Initial Health Status
+      debug:
+        msg: "Cluster is healthy. Leader ID is: {{ initial_quorum_check.stdout | regex_search('LeaderId:\\s+(\\d+)', '\\1') | first }}"
+      when: initial_quorum_check.rc == 0
+
+    - name: Stop Kafka service cleanly
+      systemd:
+        name: kafka
+        state: stopped
+      when: initial_quorum_check.rc == 0
+
+    - name: Reboot the Controller machine
+      reboot:
+        reboot_timeout: 600
+        post_reboot_delay: 20
+        test_command: uptime
+
+    - name: Wait for Kafka Controller port to be active
+      wait_for:
+        port: 9093
+        state: started
+        delay: 10
+        timeout: 120
+
+    - name: Verify node has caught up and is Active (Leader or Follower)
+      shell: >
+        sudo {{ kafka_bin_dir }}/kafka-metadata-quorum 
+        --bootstrap-controller {{ bootstrap_server }} 
+        describe --replication
+      register: sync_status
+      # We check that the specific NodeId is present and NOT in a 'Candidate' or 'Observer' state
+      # We specifically look for 'Leader' or 'Follower' on the line for this node_id
+      until:
+        - "sync_status.stdout is search('^' ~ node_id ~ '\\s+.*(Leader|Follower)', multiline=True)"
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Post-Reboot Quorum Health Verification
+      shell: >
+        {{ kafka_bin_dir }}/kafka-metadata-quorum 
+        --bootstrap-controller {{ bootstrap_server }} 
+        describe --status
+      register: post_check
+      changed_when: false
+
+- name: Final Cluster Health Verification
+  hosts: kraft_controllers
+  run_once: true
+  tasks:
+    - name: Final Quorum Status Report
+      shell: >
+        sudo {{ kafka_bin_dir }}/kafka-metadata-quorum --bootstrap-controller localhost:9093 describe --status
+      register: final_summary
+
+    - name: Display Final Status
+      debug:
+        var: final_summary.stdout_lines

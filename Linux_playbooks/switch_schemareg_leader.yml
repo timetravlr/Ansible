@@ -1,0 +1,129 @@
+---
+# Switch the kafka brokers used US schema registry to change leader eligibility
+# Run on US prod only.
+# Usage: ../bin/ansible-playbook playbooks/adhoc/dc_switchover/switch_schemareg_leader.yml -i inventories/DC1.yml -i inventories/DC2.yml -l schemareg_server --tags ...
+#
+# Available tags:
+#  --tags= stop_services, restart_services, update_leader_elig_false, update_leader_elig_true, update_kafka_settings, update_kafka_rest
+
+- name: Playbook to apply settings to schema-registry and kafka-rest
+  hosts: schemareg_server
+  gather_facts: true
+  become: true
+  serial: 1
+  vars:
+    live_dc_us: "DC1" # set this to the current active DC 
+    kafka_brokers_prod: "{{ promoted_dc }}-kafka-01.domain.fqdn:9093,{{ promoted_dc }}-kafka-02.domain.fqdn:9093,{{ promoted_dc }}-kafka-03.domain.fqdn:9093
+    zookeeper_connect_test: "{{ datacenter }}-zookeepertest-01.domain.fqdn:2181,{{ datacenter }}-zookeepertest-02.domain.fqdn:2181,{{ datacenter }}-zookeepertest-03.domain.fqdn:2181"
+  vars_prompt:
+    - name: promoted_dc
+      prompt: Enter the promoted dc 
+      private: false
+    - name: demoted_dc
+      prompt: Enter the demoted dc 
+      private: false
+    - name: stop_services_confirmation
+      prompt: "Are you ready to stop schema-registry and kafka-rest services ? (y/n)"
+      private: no
+  
+  tasks:
+    - name: Prompt to stop schema reg services 
+      ansible.builtin.pause:
+        prompt: "Are you ready to stop the schema-registry and kafka-rest services on {{ inventory_hostname }} ? y or n " 
+      register: service_stop_prompt
+      run_once: true
+      delegate_to: localhost
+    
+ 
+    - name: Stop schema registry and kafka-rest services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - schema-registry
+        - kafka-rest
+      when: service_stop_prompt.user_input | lower == 'y'
+      tags: stop_services
+      register: stop_services
+      
+
+    - name: Demote schema reg servers by setting leader.eligibility=false
+      ansible.builtin.lineinfile:
+        path: /etc/schema-registry/schema-registry.properties
+        regexp: '^leader.eligibility='
+        line: leader.eligibility=false
+        backup: true
+      when:
+        - demoted_dc in inventory_hostname
+      tags: update_leader_elig_false
+
+  # Can also run this standalone:  ../bin/ansible-playbook playbooks/adhoc/dc_switchover/switch_schemareg_leader.yml -i inventories/DC2.yml -l schemareg_server --tags update_leader_elig_false
+
+    - name: Promote schema reg servers by setting leader.eligibility=true
+      ansible.builtin.lineinfile:
+        path: /etc/schema-registry/schema-registry.properties
+        regexp: '^leader.eligibility='
+        line: leader.eligibility=true
+      when:
+        - promoted_dc in inventory_hostname
+      tags: update_leader_elig_true
+
+    - name: Gather the leader eligibility settings in schema-registry
+      ansible.builtin.command: grep eligibility /etc/schema-registry/schema-registry.properties
+      register: check_leader_elig
+
+
+    - name: Update kafka broker config used by schema registry to point to promoted {{ promoted_dc }}
+      ansible.builtin.lineinfile:
+        path: /etc/schema-registry/schema-registry.properties
+        regexp: '^kafkastore.bootstrap.servers='
+        line: kafkastore.bootstrap.servers={% if inventory_hostname in groups['testschemareg_server'] %}{{ kafka_brokers_test }}{% else %}{{ kafka_brokers_prod }}{% endif %}
+      register: update_kafka_settings
+      tags: update_kafka_settings
+
+    - name: Gather the kafka settings
+      ansible.builtin.command: grep kafkastore.bootstrap.servers /etc/schema-registry/schema-registry.properties
+      register: check_kafka_settings
+      tags: update_kafka_settings
+
+    - name: Update kafka-rest zookeeper.connect config used to point to local DC zookeepers
+      ansible.builtin.lineinfile:
+        path: /etc/kafka-rest/kafka-rest-rally.properties
+        regexp: '^zookeeper.connect='
+        line: >-
+          zookeeper.connect={{ zookeeper_connect_test 
+          if ('testschemareg_server' in group_names) 
+          else zookeeper_connect }}
+        backup: true
+      register: update_kafka_rest
+      tags: update_kafka_rest
+
+    - name: Gather the kafka-rest settings
+      ansible.builtin.command: grep zookeeper /etc/kafka-rest/kafka-rest-rally.properties
+      register: check_kafka_rest_settings
+      tags: update_kafka_rest
+
+    - name: Display kafka settings
+      ansible.builtin.debug:
+        msg: |
+          Kafkastore bootstrap settings: {{ check_kafka_settings.stdout }}
+          Kafka-rest settings: {{ check_kafka_rest_settings.stdout }}
+          Leader eligibility settings: {{ check_leader_elig.stdout }}
+      tags: display_kafka_settings
+
+    - name: Prompt to restart schema reg service on schema registry servers
+      ansible.builtin.pause:
+        prompt: Are you ready to restart the schema-registry and kafka-rest services on {{ inventory_hostname }} ? y or n 
+      register: check_restart_services
+
+    - name: Restart schema registry and kafka-rest service on schema reg servers
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+      with_items:
+        - schema-registry
+        - kafka-rest
+      tags: restart_services
+      register: restart_services
+      when: check_restart_services.user_input == 'y'
+
