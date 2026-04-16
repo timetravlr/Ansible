@@ -1,9 +1,0 @@
---- # nsswitch configuration preparing sssd
-- hosts: sssdservers
-  tasks:
-    - name: Run authconfig to enable sssd and pam
-      command: "/usr/sbin/authconfig --update --enablesssd --enablesssdauth --enablemkhomedir"
-      register: runauthconfig
-
-    - name: Copy nsswitch conf
-      copy: src=../files/nsswitch.conf dest=/etc/nsswitch.conf owner=root group=root mode=644
