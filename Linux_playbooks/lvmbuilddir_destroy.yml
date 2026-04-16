@@ -1,6 +1,6 @@
 ---
-# DESTROY lVM disk and remove the folder - WARNING it will delete shtuff
-- hosts: cent7
+# DESTROY LVM disk and remove the folder - WARNING it will delete data
+- hosts: rhel8
   user: root
   vars:
    - datastore_name: DATASTORE1

@@ -4,7 +4,7 @@
 # 1. Is /dev/sdb created yet in vSphere? If no, then add /dev/sdb and Configure LVM
 # 2. Is /dev/sdb created? If yes, but not configured, then Configure LVM
 # 3. Is /dev/sdb created, and LVM configured? Then just reapply permissions on /build for build or testclient user.
-- hosts: cent7
+- hosts: rhel8
   vars:
     - disk_size: 250
     - datastore_name: DATASTORE1

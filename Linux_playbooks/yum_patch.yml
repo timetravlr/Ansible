@@ -1,0 +1,119 @@
+---
+# Playbook to check kernel version, run the yum patch commands and provide detail on how it went
+# Usage: ../bin/ansible-playbook playbooks/yum_patch.yml -i inventories/dc.yml -l groupname
+#
+- name: Check and Patch
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    - name: Set yum_or_dnf fact based on OS version
+      ansible.builtin.set_fact:
+        yum_or_dnf: "{{ 'dnf' if ansible_distribution_major_version == '8' else 'yum' }}"
+      when: ansible_distribution_major_version in ["7", "8"]  
+
+    - name: Check for available yum updates
+      ansible.builtin.shell:
+        cmd: "sudo {{ yum_or_dnf }} -q check-update 2>/dev/null"
+      register: yum_check
+      when: yum_or_dnf is defined
+      changed_when: false
+      failed_when: false
+      tags: yum_check
+
+    - name: Set a variable for update status
+      ansible.builtin.set_fact:
+        updates_available: >-
+          {{ (yum_check is defined and yum_check is not skipped and
+           (yum_check.rc == 0 or yum_check.rc == 100) and
+           yum_check.stdout_lines | length > 0) }}
+
+    - name: Display available updates
+      ansible.builtin.debug:
+        var: updates_available
+      when: updates_available is defined
+      ignore_errors: true
+
+    - name: Warn if no updates were found
+      ansible.builtin.debug:
+        msg: "ERROR: No updates found on {{ inventory_hostname }}. Playbook requires updates to be available to proceed."
+      when: updates_available is defined and not updates_available
+
+    - name: Get the date of the last installed package
+      ansible.builtin.shell:
+        cmd: "rpm -qa --last | head -n 1 | awk '{print $3, $4, $5}'"
+      register: last_patch_date
+
+    - ansible.builtin.debug: 
+        msg: "Last patched date was {{ last_patch_date.stdout_lines }}"
+
+    - name: Yum patch the machine(s) asynchronously
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+        lock_timeout: 3600
+      tags: patch_now
+      when: updates_available
+      async: 3600
+      poll: 0
+      register: yum_update_status
+
+    - name: check on yum update status
+      async_status:
+        jid: "{{ yum_update_status.ansible_job_id }}"
+      register: yum_result
+      until: yum_result.finished
+      delay: 10
+      retries: 360
+      when: updates_available
+
+    - name: Display output of updates
+      ansible.builtin.debug:
+        msg: "{{ yum_result.results }}"
+      when: updates_available
+
+    - name: Display message if no updates found or not installed
+      ansible.builtin.debug:
+        msg: "Updates failed."
+      when: yum_update_status is failed
+      ignore_errors: true
+
+###################################
+
+- name: Reboot if chosen
+  hosts: databases
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    reboot_required: false
+    reboot_now: false
+
+  tasks:
+    - name: Block for restart section
+      block:
+
+        - name: Include needs-restart
+          ansible.builtin.include_role:
+            name: needs-restart
+          tags: needsrestart
+
+        - name: Prompt if ready to reboot
+          ansible.builtin.pause:
+            prompt: "Are you sure you want to reboot {{ inventory_hostname }} now with reboot.yml? Type (yes/no) "
+          register: reboot_now_prompt
+          tags: reboot
+
+        - name: Run reboot script if in group databases 
+          ansible.builtin.include_role:
+            name: reboot-hosts
+          when:
+            - (inventory_hostname in groups['databases'])
+            - reboot_now_prompt.user_input | bool
+          register: reboot_hosts
+          tags: reboot
+
+      when: reboot_now | bool
+      # end block
